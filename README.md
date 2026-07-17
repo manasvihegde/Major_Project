@@ -1,101 +1,292 @@
+# LLM Reasoning Stability Analysis Pipeline
 
-```markdown
-# Investigation on Stability and Faithfulness in LLM Reasoning Explanations
-
-Welcome to the backend repository for our major project! This codebase serves as our research engine to systematically stress-test Large Language Models (LLMs). We are moving away from subjective "LLM-as-a-judge" methods and using objective, XAI-based metrics to identify error patterns and quantify hallucinations.
+This project evaluates the robustness of Large Language Models (LLMs) by applying algorithmic prompt perturbations and comparing the model's reasoning across original and modified prompts. The pipeline integrates dataset curation, perturbation generation, comparative logging, and PostgreSQL-based experiment tracking.
 
 ---
 
-## 📂 Project Structure
-
-This repository is kept intentionally clean and modular. Here is where everything lives:
-
-* **`main.py`**: The FastAPI controller. This handles incoming API requests, triggers the model generation, and processes the raw neural activations into a clean JSON format.
-* **`model_pipeline.py`**: Our **Mechanistic Transparency** engine. It loads the LLM, manages PyTorch layer-wise hooks to capture hidden states, and facilitates causal bottleneck verification.
-* **`.gitignore`**: Ensures that heavy folders like `venv/`, `.cache/`, and system logs are not accidentally uploaded to GitHub.
-
----
-
-## 🚀 How to Setup the Project Locally
-
-If this is your first time pulling the project, follow these steps to get the server running on your machine:
-
-1. **Clone the repository:**
-   ```bash
-   git clone <paste-your-github-repo-link-here>
-   cd llm-xai-backend
+## Project Workflow
 
 ```
+curate_dataset.py
+        │
+        ▼
+curated_reasoning_dataset.json
+        │
+        ├──────────────► baseline_eval.py
+        │
+        ▼
+run_parsers.py
+        │
+        ▼
+CuratedDatasetParser
+        │
+        ▼
+PostgreSQL Database
+        │
+        ▼
+comparative_logger.py
+        │
+        ▼
+model_pipeline.py
+        │
+        ▼
+Model Outputs + Stability Scores
+```
 
-2. **Set up your virtual environment:**
+---
+
+## Features
+
+- Curated reasoning dataset generation
+- Baseline evaluation metrics
+- Prompt perturbation generation
+- Comparative reasoning analysis
+- Stability score computation
+- PostgreSQL experiment logging
+- GPT-2 inference support
+- Offline execution using curated datasets
+
+---
+
+## Project Structure
+
+```
+project/
+│
+├── baseline_eval.py
+├── comparative_logger.py
+├── curate_dataset.py
+├── model_pipeline.py
+├── perturbation_config.py
+├── perturbation_engine.py
+├── run_parsers.py
+│
+├── parsers/
+│   ├── base_parser.py
+│   ├── curated_dataset_parser.py
+│   └── gsm8k_parser.py
+│
+├── db/
+│   ├── connection.py
+│   ├── init_db.py
+│   └── schema.sql
+│
+├── curated_reasoning_dataset.json
+└── README.md
+```
+
+---
+
+## Database Schema
+
+The system stores experiment information across the following tables:
+
+- datasets
+- questions
+- perturbations
+- run_logs
+- model_outputs
+- stability_scores
+- xai_attribution_scores
+
+---
+
+## Installation
+
+Create a virtual environment.
+
 ```bash
 python -m venv venv
-
 ```
 
+Activate it.
 
-3. **Activate the virtual environment:**
-* **Windows:** `venv\Scripts\activate`
-* **Mac/Linux:** `source venv/bin/activate`
+### Windows
 
+```bash
+venv\Scripts\activate
+```
 
-4. **Install the required dependencies:**
+Install dependencies.
+
 ```bash
 pip install -r requirements.txt
-
 ```
 
+or install manually
 
-5. **Start the local server:**
 ```bash
-uvicorn main:app --reload
-
+pip install transformers
+pip install datasets
+pip install sentence-transformers
+pip install psycopg2-binary
+pip install python-dotenv
+pip install pandas
 ```
-
-
-*Once running, you can test the API by visiting `http://127.0.0.1:8000/docs` in your browser!*
 
 ---
 
-## 🛠️ Team Workflow (Crucial!)
+## Running the Project
 
-To collaborate effectively without overwriting each other's work or breaking the main project, please follow this Git branching workflow every time you code:
+### 1. Generate Curated Dataset
 
-1. **Always pull the latest updates before starting:**
 ```bash
-git checkout main
-git pull origin main
-
+python curate_dataset.py
 ```
 
-
-2. **Create a new branch for your work (DO NOT code directly on main):**
-```bash
-git checkout -b your-name-or-feature
+Creates:
 
 ```
-
-
-*(Example: `git checkout -b janvi-analysis`)*
-3. **Write your code, then add and commit your changes:**
-```bash
-git add .
-git commit -m "Added XAI heatmap logic"
-
+curated_reasoning_dataset.json
 ```
-
-
-4. **Push your specific branch to GitHub:**
-```bash
-git push -u origin your-name-or-feature
-
-```
-
-
-5. **Merge:** Go to GitHub.com and open a **Pull Request** to safely merge your work into the `main` branch.
 
 ---
 
+### 2. Initialize Database
+
+```bash
+python db/init_db.py
 ```
 
+This recreates all PostgreSQL tables.
+
+---
+
+### 3. Parse Dataset
+
+```bash
+python run_parsers.py
 ```
+
+The parser automatically:
+
+- checks whether `curated_reasoning_dataset.json` exists
+- uses it if available
+- otherwise falls back to downloading GSM8K from Hugging Face
+
+During parsing the system:
+
+- registers the dataset
+- inserts questions
+- generates perturbations
+- stores everything in PostgreSQL
+
+---
+
+### 4. Run Comparative Evaluation
+
+```bash
+python comparative_logger.py --num_questions 5 --model gpt2
+```
+
+This:
+
+- loads GPT-2
+- evaluates original prompts
+- evaluates perturbed prompts
+- computes cosine similarity
+- stores outputs
+- computes stability scores
+
+---
+
+## Outputs
+
+### Dataset
+
+```
+curated_reasoning_dataset.json
+```
+
+Contains curated GSM8K and StrategyQA reasoning prompts.
+
+---
+
+### Baseline Metrics
+
+```
+baseline_metrics_log.json
+```
+
+Contains baseline evaluation statistics.
+
+---
+
+### Database Tables
+
+Questions
+
+```sql
+SELECT COUNT(*) FROM questions;
+```
+
+Perturbations
+
+```sql
+SELECT COUNT(*) FROM perturbations;
+```
+
+Model Outputs
+
+```sql
+SELECT COUNT(*) FROM model_outputs;
+```
+
+Stability Scores
+
+```sql
+SELECT COUNT(*) FROM stability_scores;
+```
+
+---
+
+## Example Results
+
+Example run using 5 questions:
+
+```
+Questions inserted      : 6
+Perturbations generated : 24
+Model outputs logged    : 25
+Stability scores        : 5
+```
+
+---
+
+## Technologies Used
+
+- Python
+- Hugging Face Transformers
+- Hugging Face Datasets
+- Sentence Transformers
+- PostgreSQL
+- Psycopg2
+- Pandas
+- GPT-2
+
+---
+
+## Contributors
+
+### Week 1
+
+- Dataset Curation
+- Baseline Evaluation
+
+### Week 2
+
+- Perturbation Engine
+- Comparative Logger
+- Stability Analysis
+- PostgreSQL Logging
+- Model Pipeline Integration
+
+---
+
+## Future Improvements
+
+- Support additional reasoning datasets
+- Multi-model benchmarking
+- Advanced perturbation strategies
+- XAI visualization dashboard
+- Web interface for experiment monitoring
