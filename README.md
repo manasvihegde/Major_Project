@@ -266,22 +266,6 @@ Stability scores        : 5
 
 ---
 
-## Contributors
-
-### Week 1
-
-- Dataset Curation
-- Baseline Evaluation
-
-### Week 2
-
-- Perturbation Engine
-- Comparative Logger
-- Stability Analysis
-- PostgreSQL Logging
-- Model Pipeline Integration
-
----
 
 ## Future Improvements
 
