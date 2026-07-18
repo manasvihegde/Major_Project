@@ -3,14 +3,14 @@
 -- ============================================================
 
 -- Drop tables in reverse dependency order (for clean resets)
+DROP TABLE IF EXISTS instability_categories CASCADE;
 DROP TABLE IF EXISTS xai_attribution_scores CASCADE;
-DROP TABLE IF EXISTS stability_scores       CASCADE;
-DROP TABLE IF EXISTS model_outputs          CASCADE;
-DROP TABLE IF EXISTS perturbations          CASCADE;
-DROP TABLE IF EXISTS questions              CASCADE;
-DROP TABLE IF EXISTS datasets               CASCADE;
-DROP TABLE IF EXISTS run_logs               CASCADE;
-
+DROP TABLE IF EXISTS stability_scores CASCADE;
+DROP TABLE IF EXISTS model_outputs CASCADE;
+DROP TABLE IF EXISTS perturbations CASCADE;
+DROP TABLE IF EXISTS questions CASCADE;
+DROP TABLE IF EXISTS datasets CASCADE;
+DROP TABLE IF EXISTS run_logs CASCADE;
 
 -- ============================================================
 -- TABLE 1: datasets
@@ -155,6 +155,32 @@ CREATE TABLE xai_attribution_scores (
     created_at              TIMESTAMP DEFAULT NOW()
 );
 
+-- ============================================================
+-- TABLE 8: instability_categories
+-- Diya, Week 2 - "Run batch jobs to categorize structural instability"
+-- One row per (run, question, perturbation) — categorizes how much the
+-- model's OUTPUT changed (structural/semantic/stable), separate from
+-- the cosine-similarity-based stability_scores table.
+-- ============================================================
+CREATE TABLE instability_categories (
+    id                   SERIAL PRIMARY KEY,
+    run_id               INT NOT NULL REFERENCES run_logs(id) ON DELETE CASCADE,
+    question_id          INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    perturbation_id      INT NOT NULL REFERENCES perturbations(id) ON DELETE CASCADE,
+    perturbation_type    VARCHAR(30) NOT NULL,
+
+    output_edit_ratio    FLOAT NOT NULL,   -- edit distance between original & perturbed OUTPUT text
+    semantic_similarity  FLOAT,            -- pulled from stability_scores for cross-reference
+
+    instability_category VARCHAR(20) NOT NULL,  -- 'structural', 'semantic', 'stable'
+
+    created_at           TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(run_id, question_id, perturbation_id)
+);
+
+
+
 
 -- ============================================================
 -- INDEXES — speeds up the most common queries
@@ -168,3 +194,5 @@ CREATE INDEX idx_stability_qid        ON stability_scores(question_id);
 CREATE INDEX idx_xai_run              ON xai_attribution_scores(run_id);
 CREATE INDEX idx_xai_qid              ON xai_attribution_scores(question_id);
 CREATE INDEX idx_xai_token            ON xai_attribution_scores(token_index);
+CREATE INDEX idx_instability_run  ON instability_categories(run_id);
+CREATE INDEX idx_instability_qid  ON instability_categories(question_id);

@@ -77,3 +77,14 @@ SYNONYM_MAP = {
 WHITESPACE_INSERTIONS = 2
 
 DEFAULT_EMBEDDER_MODEL = "all-MiniLM-L6-v2"
+
+# --- instability thresholds -------------------------------------------------
+# Used by batch_runner.py to categorize how much a perturbation changed
+# the model's output.
+#   structural: output text changed enough in shape/edit-distance to count
+#               as a real behavioral shift
+#   semantic:   some change happened but below the structural cutoff
+INSTABILITY_THRESHOLDS = {
+    "structural": {"edit_distance_min": 0.3},
+    "semantic": {"embedding_cosine_max": 0.85},
+}
