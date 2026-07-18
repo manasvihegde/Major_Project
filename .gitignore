@@ -1,4 +1,28 @@
-venv/
+# Virtual environment
+project/venv/
+
+# Environment variables
+.env
+
+# Python cache
 __pycache__/
+*.py[cod]
+
+# VS Code
+.vscode/
+
+# Logs
+*.logc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Cache
 .cache/
+
+# Generated data outputs
+data/outputs/
+
+# JSON files (datasets/results) — remove or scope this if you need to track specific JSON configs
 *.json
