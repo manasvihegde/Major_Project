@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from parsers.gsm8k_parser import GSM8KParser
+from parsers.strategyqa_parser import StrategyQAParser
+from parsers.hotpotqa_parser import HotpotQAParser
 from parsers.curated_dataset_parser import CuratedDatasetParser
 from db.connection import get_dict_connection
 
@@ -23,11 +25,14 @@ def run_all_parsers(num_samples_each=100):
 
     else:
 
-        print("\nCurated dataset not found.")
-        print("Falling back to HuggingFace GSM8K.\n")
+        print("\n⚠️  WARNING: curated_reasoning_dataset.json not found.")
+        print("⚠️  Falling back to individual dataset parsers (GSM8K + StrategyQA + HotpotQA).")
+        print("⚠️  Run `python curate_dataset.py` first if you want the faster, unified path.\n")
 
         parsers = [
-            GSM8KParser(split="train")
+            GSM8KParser(split="train"),
+            StrategyQAParser(split="test"),
+            HotpotQAParser(split="validation"),
         ]
 
     for parser in parsers:
