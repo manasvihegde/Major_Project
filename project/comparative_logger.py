@@ -103,9 +103,22 @@ def log_model_output(conn, run_id, question_id, perturbation_id, input_text,
 
 
 def log_stability_score(conn, run_id, question_id, per_type_scores, embedder_model):
+    """
+    FIX: stability_scores.overall_stability is NOT NULL in schema.sql.
+    If a question has no perturbations (or none matched a known type),
+    valid_scores is empty and overall would previously be None, causing
+    an IntegrityError and killing the whole run. We now skip logging a
+    row entirely in that case instead of inserting a NULL.
+    """
     valid_scores = [v for v in per_type_scores.values() if v is not None]
-    overall = sum(valid_scores) / len(valid_scores) if valid_scores else None
-    category = classify_stability(overall) if overall is not None else None
+
+    if not valid_scores:
+        print(f"  Q{question_id}: no valid perturbation scores, "
+              f"skipping stability_scores row")
+        return None, None
+
+    overall = sum(valid_scores) / len(valid_scores)
+    category = classify_stability(overall)
 
     cur = conn.cursor()
     cur.execute("""
