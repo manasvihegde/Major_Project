@@ -52,10 +52,12 @@ CREATE TABLE questions (
 CREATE TABLE perturbations (
     id                  SERIAL PRIMARY KEY,
     question_id         INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-    perturbation_type   VARCHAR(30) NOT NULL,  -- 'prefix', 'name_swap', 'synonym', 'whitespace'
+    perturbation_type   VARCHAR(30) NOT NULL,
     perturbed_text      TEXT NOT NULL,
-    diff_from_original  FLOAT,                 -- character-level edit distance (0 to 1)
-    created_at          TIMESTAMP DEFAULT NOW()
+    diff_from_original  FLOAT,
+    created_at          TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE (question_id, perturbation_type)
 );
 
 
@@ -87,14 +89,14 @@ CREATE TABLE model_outputs (
     run_id              INT NOT NULL REFERENCES run_logs(id) ON DELETE CASCADE,
     question_id         INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     perturbation_id     INT REFERENCES perturbations(id) ON DELETE CASCADE,
-                        -- NULL means this is the original (not a perturbation)
-    input_text          TEXT NOT NULL,         -- exact prompt fed to the model
-    reasoning_chain     TEXT,                  -- the generated reasoning steps
-    final_answer_raw    TEXT,                  -- raw answer text from model
-    final_answer_numeric FLOAT,               -- extracted numeric answer (if any)
-    is_correct          BOOLEAN,              -- does it match ground truth?
-    token_count         INT,                  -- length of generated output
-    generation_time_ms  INT,                  -- how long generation took
+    input_text          TEXT NOT NULL,
+    reasoning_chain     TEXT,
+    final_answer_raw    TEXT,
+    final_answer_numeric FLOAT,
+    is_correct          BOOLEAN,
+    token_count         INT,
+    generation_time_ms  INT,
+    final_answer_probability FLOAT,     -- ADD THIS LINE (Week 4, regression_tracker.py)
     created_at          TIMESTAMP DEFAULT NOW()
 );
 

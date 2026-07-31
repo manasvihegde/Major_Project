@@ -67,24 +67,39 @@ class BaseParser(ABC):
 
     def insert_perturbations(self, question_id, perturbations):
         """
-        Inserts all perturbation variants for a question.
-        perturbations: list of dicts with keys 'type' and 'text'
+        Inserts (or, on re-run, UPDATES in place) all perturbation
+        variants for a question.
+
+        FIX: previously this was a bare INSERT with no conflict handling,
+        so re-running a parser against the same questions kept appending
+        duplicate perturbation rows per type (4 -> 8 -> 12 ...) every
+        time. This now upserts on (question_id, perturbation_type),
+        which requires the matching unique constraint added to
+        schema.sql:
+
+            ALTER TABLE perturbations
+                ADD CONSTRAINT uq_perturbation_type_per_question
+                UNIQUE (question_id, perturbation_type);
+
         Returns list of perturbation IDs.
         """
         cur = self.conn.cursor()
         pids = []
+        print("Inserting perturbations...")
 
         for p in perturbations:
-            # Compute simple character-level edit distance ratio
-            original_len = max(1, len(p.get("original_text", p["text"])))
             diff = self._edit_distance_ratio(
                 p.get("original_text", ""), p["text"]
             )
+            print("Inserting question...")
             cur.execute("""
                 INSERT INTO perturbations
                     (question_id, perturbation_type,
                      perturbed_text, diff_from_original)
                 VALUES (%s, %s, %s, %s)
+                ON CONFLICT (question_id, perturbation_type) DO UPDATE
+                    SET perturbed_text = EXCLUDED.perturbed_text,
+                        diff_from_original = EXCLUDED.diff_from_original
                 RETURNING id;
             """, (question_id, p["type"], p["text"], diff))
             pids.append(cur.fetchone()[0])
