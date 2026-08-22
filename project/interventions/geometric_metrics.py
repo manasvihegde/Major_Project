@@ -74,3 +74,29 @@ if __name__ == "__main__":
     
     for layer, metrics in list(scores.items())[:5]: # Print first 5 layers
         print(f"{layer}: Cosine Dist = {metrics['mean_cosine_distance']:.4f}, L2 Dist = {metrics['mean_l2_distance']:.4f}")
+
+import torch
+import torch.nn.functional as F
+
+def compute_layer_drifts(base_acts, pert_acts):
+    """
+    Calculates Cosine and Euclidean distances between baseline and perturbed hidden states.
+    """
+    drifts = {}
+    for layer in base_acts.keys():
+        if layer in pert_acts:
+            # Flatten tensors for 1D distance calculations
+            base_tensor = base_acts[layer].float().view(-1)
+            pert_tensor = pert_acts[layer].float().view(-1)
+            
+            # 1. Cosine Distance (1 - Cosine Similarity)
+            cos_sim = F.cosine_similarity(base_tensor.unsqueeze(0), pert_tensor.unsqueeze(0)).item()
+            
+            # 2. Euclidean Distance
+            euclid_dist = torch.norm(base_tensor - pert_tensor).item()
+            
+            drifts[layer] = {
+                "cosine_distance": 1.0 - cos_sim,
+                "euclidean_distance": euclid_dist
+            }
+    return drifts
