@@ -1,40 +1,41 @@
 import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import get_peft_model
 
 if os.getenv("HF_HOME_CACHE"):
     os.environ["HF_HOME"] = os.getenv("HF_HOME_CACHE")
 
 class HookedModelPipeline:
-    def __init__(self, model_name="gpt2"):
+    def __init__(self, model_name="gpt2", peft_config=None):
         print(f"Loading model: {model_name}...")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name).to(self.device)
+        
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Wrap with LoRA/PEFT if config is supplied, keeping old behavior when None
+        if peft_config is not None:
+            self.model = get_peft_model(self.model, peft_config)
+            print("PEFT / LoRA adapter successfully wrapped around model.")
 
         self.activations = {}
         self.hooks = []
-        
-        # WEEK 4: Storage for active manual state forcing
         self.interventions = {} 
 
         self._register_hooks()
         print("Model and layer-wise hooks successfully initialized!")
 
-    # WEEK 4: The Interface for Staging Interventions
     def add_intervention(self, layer_name: str, replacement_tensor: torch.Tensor):
-        """Stages a tensor to be forced into the model at a specific layer."""
         self.interventions[layer_name] = replacement_tensor.to(self.device)
 
     def clear_interventions(self):
-        """Removes all manual state forcing."""
         self.interventions.clear()
 
-    # WEEK 4: Upgraded Hook with Structural Fail-Safes
     def _get_activation_and_intervene(self, name):
         def hook(model, input, output):
-            # 1. Capture the original state (Observation)
             if isinstance(output, tuple):
                 current_state = output[0]
             else:
@@ -42,39 +43,31 @@ class HookedModelPipeline:
                 
             self.activations[name] = current_state.detach().cpu()
 
-            # 2. Apply Active Intervention if one is staged for this layer
             if name in self.interventions:
                 replacement = self.interventions[name]
-
-                # STRUCTURAL FAIL-SAFE: Verify tensor dimensions exactly match
-                # If they don't, the model will crash. We catch it here.
                 if replacement.shape != current_state.shape:
                     print(f"⚠️ FAIL-SAFE TRIGGERED at {name}:")
                     print(f"   Expected shape: {current_state.shape}")
                     print(f"   Injected shape: {replacement.shape}")
                     print(f"   Action: Aborting intervention to prevent PyTorch crash.")
                 else:
-                    # Force the internal state
                     if isinstance(output, tuple):
                         return (replacement,) + output[1:]
                     else:
                         return replacement
-            
-            # Return normal output if no intervention occurred
             return output
         return hook
 
     def _register_hooks(self):
         layers = None
         if hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
-            layers = self.model.transformer.h  # GPT-2 architecture
+            layers = self.model.transformer.h 
         elif hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
-            layers = self.model.model.layers  # LLaMA / Mistral architecture
+            layers = self.model.model.layers 
 
         if layers is not None:
             for i, layer in enumerate(layers):
                 layer_name = f"layer_{i}"
-                # WEEK 4: Using the new intervention-aware hook
                 hook_handle = layer.register_forward_hook(self._get_activation_and_intervene(layer_name))
                 self.hooks.append(hook_handle)
         else:
@@ -82,7 +75,6 @@ class HookedModelPipeline:
 
     def generate_with_hooks(self, prompt, max_new_tokens=50):
         self.activations.clear()
-
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         with torch.no_grad():
@@ -113,6 +105,18 @@ class HookedModelPipeline:
             "attentions": attentions,
             "input_ids": inputs["input_ids"][0].detach().cpu(),
         }
+
+    def forward_with_grad(self, prompt: str, target_text: str):
+        """
+        Tokenizes prompt + target, runs a gradient-enabled forward pass,
+        and returns logits aligned to target tokens for loss computation.
+        """
+        full_text = prompt + target_text
+        inputs = self.tokenizer(full_text, return_tensors="pt").to(self.device)
+        
+        # Forward pass with gradients enabled
+        outputs = self.model(**inputs, labels=inputs["input_ids"])
+        return outputs.loss, outputs.logits
 
     def clear_hooks(self):
         for hook in self.hooks:
