@@ -7,8 +7,10 @@ Generates a 2D heatmap showing Cosine Distance across Layers and Tokens.
 import os
 import torch
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 def generate_layer_token_heatmap(baseline_activations: dict, intervened_activations: dict, tokens: list, filename="misalignment_heatmap.png"):
     """
@@ -87,8 +89,7 @@ if __name__ == "__main__":
     
     # Extract the tokens to label our X-axis
     # GPT-2 input_ids + output_ids concatenated for the full sequence
-    all_ids = torch.cat([base_result["input_ids"], base_result["output_ids"][0]])
-    tokens = [pipeline.tokenizer.decode([t]) for t in all_ids]
+    tokens = pipeline.tokenizer.tokenize(base_result["generated_text"])
 
     # 2. Intervened Run (Lobotomize Layer 4)
     print("Running Intervention on Layer 4...")
