@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM XAI Mechanistic Stress-Test Suite</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --card-bg: #334155;
+            --accent-color: #38bdf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #475569;
+            --stable-bg: #14532d;
+            --stable-text: #4ade80;
+            --stable-badge: #22c55e;
+            --unstable-bg: #7f1d1d;
+            --unstable-text: #f87171;
+            --unstable-badge: #ef4444;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding: 24px; }
+        
+        .container { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+        
+        /* Header */
+        header h1 { font-size: 1.8rem; color: var(--accent-color); margin-bottom: 6px; }
+        header p { color: var(--text-muted); font-size: 0.95rem; }
+
+        /* Controls Bar (C.2) */
+        .controls-card {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        textarea, input[type="number"] {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-main);
+            padding: 10px;
+            font-size: 0.95rem;
+        }
+        textarea:focus, input[type="number"]:focus { outline: none; border-color: var(--accent-color); }
+        .controls-row { display: flex; gap: 16px; align-items: flex-end; }
+        .tokens-input { width: 140px; }
+        
+        button.btn-primary {
+            background-color: var(--accent-color);
+            color: #0f172a;
+            border: none;
+            border-radius: 6px;
+            padding: 12px 24px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+            height: 42px;
+        }
+        button.btn-primary:hover:not(:disabled) { opacity: 0.9; }
+        button.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .status-msg { font-size: 0.9rem; color: var(--accent-color); margin-top: 4px; display: none; }
+
+        /* Ranked Summary View (C.5) */
+        .summary-card {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            display: none;
+        }
+        .summary-card h2 { font-size: 1.2rem; color: var(--accent-color); margin-bottom: 12px; }
+        .summary-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .summary-table th { background-color: var(--card-bg); padding: 10px 14px; font-size: 0.85rem; color: var(--text-muted); border-bottom: 2px solid var(--border-color); }
+        .summary-table td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); font-size: 0.95rem; }
+        .summary-table tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+
+        /* Dynamic Panel Grid (C.4) */
+        .panel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 20px;
+        }
+
+        .model-panel {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding: 18px;
+        }
+        .model-panel.failed { border-color: var(--unstable-badge); }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+        .panel-header h3 { font-size: 1.1rem; color: var(--text-main); }
+        .badge { font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 4px; background-color: var(--card-bg); color: var(--text-muted); }
+
+        /* Output blocks */
+        .section-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; font-weight: 700; }
+        .output-block {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        /* Perturbation Cards */
+        .pert-list { display: flex; flex-direction: column; gap: 10px; }
+        .pert-card {
+            background-color: var(--card-bg);
+            border-radius: 6px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border-left: 4px solid var(--border-color);
+        }
+        .pert-card.is-stable { border-left-color: var(--stable-badge); }
+        .pert-card.is-unstable { border-left-color: var(--unstable-badge); }
+
+        .pert-header { display: flex; justify-content: space-between; align-items: center; }
+        .pert-type { font-size: 0.8rem; font-weight: bold; text-transform: uppercase; color: var(--text-main); }
+        .pert-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .badge-stable { background-color: var(--stable-bg); color: var(--stable-text); }
+        .badge-unstable { background-color: var(--unstable-bg); color: var(--unstable-text); }
+
+        .drift-stat { font-size: 0.75rem; color: var(--text-muted); }
+        .panel-footer {
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LLM Stability & Hallucination Stress-Test Suite</h1>
+            <p>Comparative mechanistic evaluation across transformer architectures & parameter scales</p>
+        </header>
+
+        <!-- C.2: Controls Bar -->
+        <div class="controls-card">
+            <div class="form-group">
+                <label for="prompt-input">Test Reasoning Prompt</label>
+                <textarea id="prompt-input" rows="3">If a train travels 60 miles in 1 hour, how far will it travel in 3 hours? Answer:</textarea>
+            </div>
+            <div class="controls-row">
+                <div class="form-group tokens-input">
+                    <label for="tokens-input">Max Tokens</label>
+                    <input type="number" id="tokens-input" value="25" min="5" max="100">
+                </div>
+                <button id="run-btn" class="btn-primary">Run Stress Test on All Models</button>
+            </div>
+            <div id="status-indicator" class="status-msg"></div>
+        </div>
+
+        <!-- C.5: Ranked Summary View -->
+        <div id="summary-view" class="summary-card">
+            <h2>🏆 Stability Benchmark Ranking (Most Stable → Least Stable)</h2>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Model Key</th>
+                        <th>Parameter Scale</th>
+                        <th>Architecture</th>
+                        <th>Stability Score</th>
+                    </tr>
+                </thead>
+                <tbody id="summary-tbody"></tbody>
+            </table>
+        </div>
+
+        <!-- C.4: Dynamic Reflow Panel Grid -->
+        <div id="panel-grid" class="panel-grid"></div>
+    </div>
+
+    <script>
+        // C.7: Easily changeable global configurations
+        const CONFIG = {
+            BASE_URL: "http://127.0.0.1:8000",
+            DEFAULT_PROMPT: "If a train travels 60 miles in 1 hour, how far will it travel in 3 hours? Answer:",
+            DEFAULT_MAX_TOKENS: 25,
+            STABILITY_DRIFT_THRESHOLD: 0.35, // Distance ratio threshold for stability
+            MODEL_SIZES: {
+                "distilgpt2": "82M",
+                "gpt-neo-125m": "125M",
+                "gpt2": "124M",
+                "qwen2.5-0.5b": "490M",
+                "tinyllama-1.1b": "1.1B"
+            }
+        };
+
+        // Helper: Normalized Levenshtein Distance for String Drift (C.4)
+        function computeEditDistanceRatio(str1, str2) {
+            const s1 = (str1 || "").trim();
+            const s2 = (str2 || "").trim();
+            const maxLen = Math.max(s1.length, s2.length);
+            if (maxLen === 0) return 0.0;
+
+            const dp = Array.from({ length: s1.length + 1 }, () => Array(s2.length + 1).fill(0));
+            for (let i = 0; i <= s1.length; i++) dp[i][0] = i;
+            for (let j = 0; j <= s2.length; j++) dp[0][j] = j;
+
+            for (let i = 1; i <= s1.length; i++) {
+                for (let j = 1; j <= s2.length; j++) {
+                    const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+                    dp[i][j] = Math.min(
+                        dp[i - 1][j] + 1,
+                        dp[i][j - 1] + 1,
+                        dp[i - 1][j - 1] + cost
+                    );
+                }
+            }
+            return dp[s1.length][s2.length] / maxLen;
+        }
+
+        function escapeHTML(str) {
+            return (str || "").replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag] || tag));
+        }
+
+        // DOM elements
+        const runBtn = document.getElementById("run-btn");
+        const promptInput = document.getElementById("prompt-input");
+        const tokensInput = document.getElementById("tokens-input");
+        const statusIndicator = document.getElementById("status-indicator");
+        const summaryView = document.getElementById("summary-view");
+        const summaryTbody = document.getElementById("summary-tbody");
+        const panelGrid = document.getElementById("panel-grid");
+
+        // Main execution handler
+        runBtn.addEventListener("click", async () => {
+            const promptText = promptInput.value.trim();
+            const maxTokens = parseInt(tokensInput.value, 10) || CONFIG.DEFAULT_MAX_TOKENS;
+
+            // Block empty input client-side (C.3)
+            if (!promptText) {
+                alert("Prompt field cannot be empty. Please enter a reasoning prompt.");
+                return;
+            }
+
+            // Set Loading UI state (C.3)
+            runBtn.disabled = true;
+            panelGrid.innerHTML = "";
+            summaryTbody.innerHTML = "";
+            summaryView.style.display = "none";
+            statusIndicator.style.display = "block";
+            statusIndicator.textContent = "Discovering active models from registry...";
+
+            try {
+                // 1. Fetch available models (B.2 / C.3)
+                const modelsRes = await fetch(`${CONFIG.BASE_URL}/models`);
+                if (!modelsRes.ok) throw new Error("Failed to reach /models endpoint");
+                const modelsData = await modelsRes.json();
+                const availableModels = modelsData.models || [];
+
+                if (availableModels.length === 0) {
+                    statusIndicator.textContent = "Error: No active models returned from backend.";
+                    runBtn.disabled = false;
+                    return;
+                }
+
+                statusIndicator.textContent = `Running stress-tests concurrently across ${availableModels.length} models...`;
+
+                // 2. Issue concurrent requests across all registered models (C.3)
+                const requestPromises = availableModels.map(model => {
+                    return fetch(`${CONFIG.BASE_URL}/stress-test`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            prompt: promptText,
+                            model_key: model.model_key,
+                            max_new_tokens: maxTokens
+                        })
+                    })
+                    .then(async res => {
+                        if (!res.ok) {
+                            const errBody = await res.json().catch(() => ({}));
+                            throw new Error(errBody.detail || `HTTP ${res.status}`);
+                        }
+                        return { status: "fulfilled", meta: model, data: await res.json() };
+                    })
+                    .catch(err => ({ status: "rejected", meta: model, error: err.message }));
+                });
+
+                // Wait for all concurrent requests to settle
+                const settledResults = await Promise.all(requestPromises);
+
+                // 3. Process Stability Scores and Render Panels
+                const benchmarkSummary = [];
+
+                settledResults.forEach(result => {
+                    const modelKey = result.meta.model_key;
+                    const arch = result.meta.architecture_family;
+                    const size = CONFIG.MODEL_SIZES[modelKey] || "Unknown";
+
+                    const panel = document.createElement("div");
+                    panel.className = "model-panel";
+
+                    if (result.status === "rejected") {
+                        panel.classList.add("failed");
+                        panel.innerHTML = `
+                            <div class="panel-header">
+                                <h3>${escapeHTML(modelKey)}</h3>
+                                <span class="badge" style="background:#7f1d1d; color:#f87171;">FAILED</span>
+                            </div>
+                            <p style="color:#f87171; font-size:0.85rem;">Error executing stress-test: ${escapeHTML(result.error)}</p>
+                        `;
+                        panelGrid.appendChild(panel);
+                        benchmarkSummary.push({ modelKey, size, arch, stableCount: -1 });
+                        return;
+                    }
+
+                    const resData = result.data;
+                    const baselineText = resData.baseline?.generated_text || "";
+                    const perturbations = resData.perturbations || [];
+
+                    let stableCount = 0;
+                    let pertCardsHTML = "";
+
+                    perturbations.forEach(pert => {
+                        const pertGenText = pert.generated_text || "";
+                        const drift = computeEditDistanceRatio(baselineText, pertGenText);
+                        const isStable = drift <= CONFIG.STABILITY_DRIFT_THRESHOLD;
+                        if (isStable) stableCount++;
+
+                        pertCardsHTML += `
+                            <div class="pert-card ${isStable ? 'is-stable' : 'is-unstable'}">
+                                <div class="pert-header">
+                                    <span class="pert-type">${escapeHTML(pert.type)}</span>
+                                    <span class="pert-badge ${isStable ? 'badge-stable' : 'badge-unstable'}">
+                                        ${isStable ? 'STABLE' : 'UNSTABLE'}
+                                    </span>
+                                </div>
+                                <span class="drift-stat">Drift: ${(drift * 100).toFixed(1)}%</span>
+                                <div class="output-block">${escapeHTML(pertGenText)}</div>
+                            </div>
+                        `;
+                    });
+
+                    panel.innerHTML = `
+                        <div class="panel-header">
+                            <div>
+                                <h3>${escapeHTML(modelKey)}</h3>
+                                <span style="font-size:0.75rem; color:var(--text-muted);">${escapeHTML(arch)} (${size})</span>
+                            </div>
+                            <span class="badge">${perturbations.length} Perturbations</span>
+                        </div>
+                        <div>
+                            <div class="section-label">Baseline Output</div>
+                            <div class="output-block">${escapeHTML(baselineText)}</div>
+                        </div>
+                        <div>
+                            <div class="section-label">Perturbation Sweeps</div>
+                            <div class="pert-list">${pertCardsHTML}</div>
+                        </div>
+                        <div class="panel-footer">
+                            <span>Robustness</span>
+                            <span style="color: ${stableCount >= 3 ? 'var(--stable-text)' : 'var(--unstable-text)'}">
+                                ${stableCount}/${perturbations.length} Stable
+                            </span>
+                        </div>
+                    `;
+
+                    panelGrid.appendChild(panel);
+                    benchmarkSummary.push({ modelKey, size, arch, stableCount, total: perturbations.length });
+                });
+
+                // 4. Render Ranked Summary Table (C.5)
+                benchmarkSummary.sort((a, b) => b.stableCount - a.stableCount);
+                summaryTbody.innerHTML = benchmarkSummary.map((item, index) => `
+                    <tr>
+                        <td><strong>#${index + 1}</strong></td>
+                        <td><code>${escapeHTML(item.modelKey)}</code></td>
+                        <td>${escapeHTML(item.size)}</td>
+                        <td>${escapeHTML(item.arch)}</td>
+                        <td>
+                            ${item.stableCount >= 0 
+                                ? `<strong style="color:${item.stableCount >= 3 ? 'var(--stable-text)' : 'var(--unstable-text)'}">${item.stableCount}/${item.total} Stable</strong>`
+                                : `<span style="color:var(--unstable-text)">FAILED</span>`}
+                        </td>
+                    </tr>
+                `).join("");
+
+                summaryView.style.display = "block";
+                statusIndicator.style.display = "none";
+
+            } catch (err) {
+                statusIndicator.textContent = `Error: ${err.message}`;
+                statusIndicator.style.display = "block";
+            } finally {
+                runBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
