@@ -7,10 +7,19 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from model_pipeline import HookedModelPipeline, MODEL_REGISTRY
+from model_pipeline import HookedModelPipeline
 from perturbation_engine import PerturbationEngine
 from interventions.geometric_metrics import compute_layer_drifts
 from interventions.truth_score import calculate_truth_score
+
+# --- Define MODEL_REGISTRY ---
+MODEL_REGISTRY = {
+    "distilgpt2": "distilgpt2",
+    "gpt-neo-125m": "EleutherAI/gpt-neo-125m",
+    "gpt2": "gpt2",
+    "qwen2.5-0.5b": "Qwen/Qwen2.5-0.5B",
+    "tinyllama-1.1b": "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+}
 
 # Page Configuration
 st.set_page_config(page_title="LLM Stability & Faithfulness XAI Inspector", layout="wide")
@@ -26,10 +35,11 @@ available_models = list(MODEL_REGISTRY.keys())
 
 st.sidebar.subheader("Mode A: Single Model Inspector")
 selected_model = st.sidebar.selectbox(
-    "Select Model Architecture", 
+    "Select Model Architecture",
     available_models,
     index=0
 )
+
 max_tokens = st.sidebar.slider("Max Generation Tokens", 10, 100, 30)
 run_single_btn = st.sidebar.button("Run Single Model Analysis", type="secondary")
 
@@ -66,60 +76,64 @@ MODEL_SIZES = {
 
 @st.cache_resource
 def get_pipeline(model_key: str):
-    return HookedModelPipeline(model_key=model_key, torch_dtype=torch.float32)
+    pipe = HookedModelPipeline(model_name=model_key)
+    pipe.register_layer_hooks()
+    return pipe
 
 engine = PerturbationEngine()
 
 # Input Reasoning Prompt
 prompt_input = st.text_area(
-    "Test Reasoning Prompt:", 
+    "Test Reasoning Prompt:",
     "If a train travels 60 miles in 1 hour, how far will it travel in 3 hours? Answer:"
 )
 
 # Core Reusable Probing and Deviation Computation (5.1 & 5.4)
 def run_model_probing(model_key: str, prompt: str, max_new_tokens: int):
-    pipe = get_pipeline(model_key)
+    # Resolve the actual Hugging Face model path from MODEL_REGISTRY
+    hf_model_id = MODEL_REGISTRY.get(model_key, model_key)
+    pipe = get_pipeline(hf_model_id)
     
     # 1. Baseline
     base_res = pipe.generate_with_hooks(prompt, max_new_tokens=max_new_tokens)
     base_acts = {k: v.clone() for k, v in pipe.activations.items()}
-    
+
     # 2. Perturbation
     perturbations = engine.generate(prompt)
     pert = perturbations[0]
-    
+
     pipe.activations.clear()
     pert_res = pipe.generate_with_hooks(pert["text"], max_new_tokens=max_new_tokens)
     pert_acts = {k: v.clone() for k, v in pipe.activations.items()}
-    
+
     # 3. Geometric Metric Calculation
     drifts = compute_layer_drifts(base_acts, pert_acts)
     cosine_vals = [d["cosine_distance"] for d in drifts.values() if not np.isnan(d["cosine_distance"])]
     euclid_vals = [d["euclidean_distance"] for d in drifts.values() if not np.isnan(d["euclidean_distance"])]
-    
+
     avg_cosine = float(np.mean(cosine_vals)) if cosine_vals else 0.0
     avg_euclid = float(np.mean(euclid_vals)) if euclid_vals else 0.0
     truth_score = calculate_truth_score(avg_cosine, avg_euclid)
-    
+
     # 4. Token x Layer Misalignment Matrix
     layers = list(base_acts.keys())
     matrix_data = []
-    
+
     for l in layers:
         if l in base_acts and l in pert_acts:
             b_tensor = base_acts[l].float()
             p_tensor = pert_acts[l].float()
-            
+
             # Align sequences safely across both dimensions
             b_seq = b_tensor.shape[1] if b_tensor.dim() >= 2 else b_tensor.shape[0]
             p_seq = p_tensor.shape[1] if p_tensor.dim() >= 2 else p_tensor.shape[0]
             seq_len = min(b_seq, p_seq)
-            
+
             layer_row = []
             for t in range(seq_len):
                 b_vec = b_tensor[0, t, :].view(-1) if b_tensor.dim() == 3 else b_tensor[t, :].view(-1)
                 p_vec = p_tensor[0, t, :].view(-1) if p_tensor.dim() == 3 else p_tensor[t, :].view(-1)
-                
+
                 cos_sim = torch.nn.functional.cosine_similarity(b_vec.unsqueeze(0), p_vec.unsqueeze(0)).item()
                 layer_row.append(max(0.0, min(1.0, 1.0 - cos_sim)))
             matrix_data.append(layer_row)
@@ -134,12 +148,16 @@ def run_model_probing(model_key: str, prompt: str, max_new_tokens: int):
             fracture_idx = deviation_indices[0]
             fracture_layer = layers[fracture_idx]
 
+    # Safe extraction of text from base_res and pert_res
+    base_text_str = base_res.get("generated_text", str(base_res)) if isinstance(base_res, dict) else str(base_res)
+    pert_res_text_str = pert_res.get("generated_text", str(pert_res)) if isinstance(pert_res, dict) else str(pert_res)
+
     return {
         "model_key": model_key,
-        "base_text": base_res["generated_text"],
+        "base_text": base_text_str,
         "pert_type": pert["type"],
         "pert_text": pert["text"],
-        "pert_res_text": pert_res["generated_text"],
+        "pert_res_text": pert_res_text_str,
         "avg_cosine": avg_cosine,
         "avg_euclid": avg_euclid,
         "truth_score": truth_score,
@@ -181,7 +199,7 @@ def render_model_details(data: dict):
     if data["matrix_data"]:
         max_len = max(len(row) for row in data["matrix_data"])
         padded_matrix = np.array([row + [0.0] * (max_len - len(row)) for row in data["matrix_data"]])
-        
+
         st.markdown("### 🔥 Dynamic Causal Divergence Across Layers & Token Steps")
         fig1, ax1 = plt.subplots(figsize=(12, 4))
         sns.heatmap(padded_matrix, cmap="Reds", annot=False, cbar=True, ax=ax1, vmin=0, vmax=1)
@@ -204,7 +222,6 @@ def render_model_details(data: dict):
         ax2.set_title(f"Mean Layer Drift Depth ({data['model_key']})")
         st.pyplot(fig2)
 
-
 # --- EXECUTION ROUTING ---
 
 # Mode A: Single Model (2.1)
@@ -220,32 +237,32 @@ if run_single_btn:
 # Mode B: All Models (Part 4)
 elif run_all_btn:
     st.markdown("## 🚀 Multi-Model Comparative Benchmark")
-    
+
     # 4.3 Incremental progress setup
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     summary_container = st.container()
     results_container = st.container()
-    
+
     evaluated_results = []
     total_models = len(available_models)
-    
+
     for i, model_key in enumerate(available_models):
         status_text.info(f"⏳ Probing model **{i+1}/{total_models}: `{model_key}`**...")
         try:
             res = run_model_probing(model_key, prompt_input, max_tokens)
             evaluated_results.append(res)
-            
+
             # 4.1 & 4.2 Incremental collapsible rendering
             with results_container:
                 headline = (
-                    f"**{model_key}** ({MODEL_SIZES.get(model_key, 'N/A')}) — "
-                    f"{'⚠️ Fracture at ' + res['fracture_layer'] if res['fracture_layer'] != 'None (Stable)' else '✅ Fully Stable'}"
+                    f"**{model_key}** ({MODEL_SIZES.get(model_key, 'N/A')}) – "
+                    f"{'⚠️ Fracture at ' + res['fracture_layer'] if res['fracture_layer'] != 'None (Stable)' else '✅ Preserved Alignment'}"
                 )
                 with st.expander(headline, expanded=(i == 0)):
                     render_model_details(res)
-                    
+
         except Exception as e:
             # 5.2 Partial failure handling
             evaluated_results.append({
@@ -255,9 +272,9 @@ elif run_all_btn:
                 "error": str(e)
             })
             with results_container:
-                with st.expander(f"❌ **{model_key}** — FAILED", expanded=False):
+                with st.expander(f"❌ **{model_key}** – FAILED", expanded=False):
                     st.error(f"Failed to probe model '{model_key}': {str(e)}")
-                    
+
         progress_bar.progress((i + 1) / total_models)
 
     status_text.success(f"✅ Finished stress-testing all {total_models} models!")
@@ -266,10 +283,10 @@ elif run_all_btn:
     with summary_container:
         st.markdown("### 📊 Cross-Model Stability Summary")
         st.caption("Lower-numbered fracture layers indicate that internal reasoning broke down earlier in the network depth.")
-        
+
         # Sort from earliest breakdown (lower index) to latest/stable
         sorted_results = sorted(evaluated_results, key=lambda x: x["fracture_idx"])
-        
+
         summary_rows = []
         for r in sorted_results:
             summary_rows.append({
@@ -279,6 +296,6 @@ elif run_all_btn:
                 "Truth-Score": f"{r.get('truth_score', 'N/A')} / 100" if "truth_score" in r else "N/A",
                 "Status": "⚠️ Fractured" if r["fracture_layer"] not in ["None (Stable)", "ERROR"] else ("✅ Stable" if r["fracture_layer"] == "None (Stable)" else "❌ Error")
             })
-            
+
         st.table(summary_rows)
         st.markdown("---")

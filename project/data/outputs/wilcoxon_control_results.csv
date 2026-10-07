@@ -1,0 +1,2 @@
+sample_size,k_layers,target_layers,control_layers,target_mean_effect,control_mean_effect,wilcoxon_statistic,p_value,statistically_significant
+20,3,"[0, 1, 5]","[10, 3, 8]",1.2280140396189054,0.9832549498948364,120.0,0.2979097366333008,False

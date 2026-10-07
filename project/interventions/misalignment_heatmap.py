@@ -12,14 +12,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+
 def generate_layer_token_heatmap(baseline_activations: dict, intervened_activations: dict, tokens: list, filename="misalignment_heatmap.png"):
     """
     Computes per-token cosine distance between baseline and intervened states,
     then renders and saves a 2D heatmap.
     """
     layers = [layer for layer in baseline_activations.keys() if layer in intervened_activations]
-    
-    # We will build a 2D matrix: [Number of Layers, Number of Tokens]
+
+    # Build 2D matrix: [Number of Layers, Number of Tokens]
     heatmap_matrix = []
 
     for layer in layers:
@@ -32,27 +33,25 @@ def generate_layer_token_heatmap(baseline_activations: dict, intervened_activati
         int_tensor = int_tensor[:, :min_seq, :]
         current_tokens = tokens[:min_seq]
 
-        # Calculate Cosine Distance per token (no .mean() this time!)
-        # 0.0 = identical, higher = more divergent
+        # Calculate Cosine Distance per token
         cos_sim = F.cosine_similarity(base_tensor, int_tensor, dim=-1)
-        cos_dist = 1.0 - cos_sim 
-        
-        # Squeeze out the batch dimension and convert to numpy list
-        heatmap_matrix.append(cos_dist.squeeze(0).numpy())
+        cos_dist = 1.0 - cos_sim
 
-    # Convert to a strict 2D numpy array for matplotlib
+        # Squeeze batch dimension, detach, and convert to numpy list
+        heatmap_matrix.append(cos_dist.squeeze(0).detach().cpu().numpy())
+
+    # Convert to strict 2D numpy array for matplotlib
     heatmap_array = np.array(heatmap_matrix)
 
     # --- RENDER THE HEATMAP ---
     fig, ax = plt.subplots(figsize=(10, 8))
-    
-    # Use the "Reds" colormap (darker red = higher misalignment)
+
     cax = ax.imshow(heatmap_array, cmap="Reds", aspect="auto")
 
     # Configure X-axis (Tokens)
     ax.set_xticks(np.arange(len(current_tokens)))
     ax.set_xticklabels(current_tokens, rotation=45, ha="right", fontsize=9)
-    
+
     # Configure Y-axis (Layers)
     ax.set_yticks(np.arange(len(layers)))
     ax.set_yticklabels(layers, fontsize=9)
@@ -64,17 +63,17 @@ def generate_layer_token_heatmap(baseline_activations: dict, intervened_activati
     plt.ylabel("Transformer Layers")
     plt.tight_layout()
 
-    # Save the output safely
-    out_dir = "data/outputs/"
+    # Save output
+    out_dir = "data/outputs"
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, filename)
-    
+
     plt.savefig(out_path, dpi=200)
-    print(f"📊 Heatmap successfully generated and saved to: {out_path}")
+    print(f"🎨 Heatmap successfully generated and saved to: {out_path}")
     plt.close()
 
 
-# --- QUICK TEST SCRIPT ---
+# --- TEST SCRIPT ---
 if __name__ == "__main__":
     from model_pipeline import HookedModelPipeline
 
@@ -84,21 +83,33 @@ if __name__ == "__main__":
 
     # 1. Baseline Run
     print("Running Baseline...")
+    pipeline.register_layer_hooks()
     base_result = pipeline.generate_with_hooks(prompt, max_new_tokens=8)
     base_acts = dict(pipeline.activations)
-    
-    # Extract the tokens to label our X-axis
-    # GPT-2 input_ids + output_ids concatenated for the full sequence
-    tokens = pipeline.tokenizer.tokenize(base_result["generated_text"])
 
-    # 2. Intervened Run (Lobotomize Layer 4)
+    # Extract tokens to label X-axis
+    base_text = base_result.get("generated_text", str(base_result)) if isinstance(base_result, dict) else str(base_result)
+    tokens = pipeline.tokenizer.tokenize(base_text)
+
+    # 2. Intervened Run (Lobotomize Layer 4 via direct PyTorch hook)
     print("Running Intervention on Layer 4...")
-    pipeline.clear_interventions()
-    lobotomy_tensor = torch.zeros_like(base_acts['layer_4'])
-    pipeline.add_intervention("layer_4", lobotomy_tensor)
-    
-    int_result = pipeline.generate_with_hooks(prompt, max_new_tokens=8)
-    int_acts = dict(pipeline.activations)
+
+    def zero_layer_hook(module, input_act, output_act):
+        if isinstance(output_act, tuple):
+            h = torch.zeros_like(output_act[0])
+            return (h,) + output_act[1:]
+        else:
+            return torch.zeros_like(output_act)
+
+    target_layer = pipeline.model.transformer.h[4]
+    intervene_handle = target_layer.register_forward_hook(zero_layer_hook)
+
+    try:
+        pipeline.register_layer_hooks()
+        int_result = pipeline.generate_with_hooks(prompt, max_new_tokens=8)
+        int_acts = dict(pipeline.activations)
+    finally:
+        intervene_handle.remove()
 
     # 3. Generate Heatmap
     print("\n🎨 Drawing Heatmap...")
