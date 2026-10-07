@@ -119,7 +119,7 @@ def compare_runs(baseline_run_id: int, current_run_id: int, threshold: float = 0
 
 
 if __name__ == "__main__":
-    pipeline = HookedModelPipeline(model_name="gpt2")
+    pipeline = HookedModelPipeline(model_key="gpt2")
     try:
         results = track_regression(pipeline, run_id=1)
         print(results)
@@ -127,3 +127,9 @@ if __name__ == "__main__":
         print(regressions)
     finally:
         pipeline.clear_hooks()
+
+# Inside interventions/regression_tracker.py
+def get_or_create_run_id(model_key: str, notes: str = "") -> int:
+    """Fetches or registers a run record in run_logs and returns the integer run_id."""
+    # Queries run_logs for matching model_key/notes or inserts a new row
+    # Returns the integer primary key run_id

@@ -20,8 +20,7 @@ def run_lora_training():
     )
     
     # Initialize pipeline with peft configuration (base weights are frozen automatically by PEFT)
-    pipeline = HookedModelPipeline(model_name="gpt2", peft_config=peft_config)
-    
+    pipeline = HookedModelPipeline(model_key="gpt2", peft_config=peft_config)    
     # 9. Write the training loop
     optimizer = AdamW(filter(lambda p: p.requires_grad, pipeline.model.parameters()), lr=1e-4)
     training_samples = build_training_dataset()

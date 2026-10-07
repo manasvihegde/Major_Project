@@ -25,12 +25,13 @@ def normalize_layer_weights(state_dict: dict, dim: int = -1) -> dict:
     return normalized_state
 
 
-def normalize_model_weights(model_name: str) -> dict:
+def normalize_model_weights(model_key: str = "gpt2") -> dict:
     """
     Loads the model via HookedModelPipeline (same class used by
     comparative_logger.py) and returns its normalized weights.
     """
-    pipeline = HookedModelPipeline(model_name=model_name)
+    # Fix 2 Applied: Use model_key= instead of model_name=
+    pipeline = HookedModelPipeline(model_key=model_key)
     normalized = normalize_layer_weights(pipeline.model.state_dict())
     pipeline.clear_hooks()
     return normalized

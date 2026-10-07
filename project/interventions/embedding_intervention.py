@@ -74,13 +74,14 @@ def build_embedding_intervention(pipeline: HookedModelPipeline, modified_text: s
     }
 
 
-def run_intervention_for_perturbation(model_name: str, perturbation_id: int):
+def run_intervention_for_perturbation(model_key: str, perturbation_id: int):
     """
     Loads a perturbation already stored by Week 2's pipeline (perturbations table)
     and converts it into an embedding intervention, ready for the Week 4
     causal bottleneck verification work.
     """
-    pipeline = HookedModelPipeline(model_name=model_name)
+    # Fix 2 Applied: Use model_key= instead of model_name=
+    pipeline = HookedModelPipeline(model_key=model_key)
     perturbation = fetch_perturbation(perturbation_id)
 
     positions = text_diff_to_token_positions(

@@ -14,7 +14,7 @@ def run_comprehensive_evaluation(adapter_path=None, run_name="gpt2_baseline", ou
     print(f"🚀 Starting Evaluation Run: [{run_name}] (Adapter Path: {adapter_path})")
     
     # 1. Initialize Pipeline & Engine
-    pipeline = HookedModelPipeline(model_name="gpt2")
+    pipeline = HookedModelPipeline(model_key="gpt2")
     
     # Load LoRA adapter if provided
     if adapter_path and os.path.exists(adapter_path):

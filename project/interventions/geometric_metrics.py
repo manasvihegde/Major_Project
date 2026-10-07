@@ -1,102 +1,37 @@
 """
-Week 5 - Janvi
-Mathematical module for geometric distance/misalignment.
-Optimized for scale using native PyTorch vectorization.
+Week 5 - Janvi Hegde & Manasvi Hegde
+Mathematical module for geometric distance and internal layer drift calculations.
 """
 
 import torch
 import torch.nn.functional as F
-
-def calculate_layer_misalignment(baseline_activations: dict, intervened_activations: dict) -> dict:
-    """
-    Computes the geometric distance (Cosine & L2) between two sets of neural states.
-    Optimized for scale: avoids Python loops over sequence lengths, strictly uses 
-    vectorized operations.
-    """
-    misalignment_scores = {}
-
-    for layer_name in baseline_activations.keys():
-        # Only compare layers that exist in both runs
-        if layer_name not in intervened_activations:
-            continue
-
-        base_tensor = baseline_activations[layer_name]
-        int_tensor = intervened_activations[layer_name]
-
-        # STRUCTURAL FAIL-SAFE: Truncate to match sequence lengths 
-        # (in case the intervention caused the generation length to differ)
-        min_seq = min(base_tensor.shape[1], int_tensor.shape[1])
-        base_tensor = base_tensor[:, :min_seq, :]
-        int_tensor = int_tensor[:, :min_seq, :]
-
-        # --- OPTIMIZED VECTOR MATH ---
-        # 1. Cosine Distance: 0.0 means identical, 2.0 means completely opposite
-        # F.cosine_similarity operates directly on the last dimension (hidden_dim)
-        cos_sim = F.cosine_similarity(base_tensor, int_tensor, dim=-1)
-        cos_dist = 1.0 - cos_sim  
-
-        # 2. L2 Distance: Absolute magnitude difference
-        l2_dist = torch.norm(base_tensor - int_tensor, p=2, dim=-1)
-
-        # Average the distances across all tokens in the sequence, 
-        # moving to .item() only at the very end to prevent CPU/GPU bottlenecks
-        misalignment_scores[layer_name] = {
-            "mean_cosine_distance": cos_dist.mean().item(),
-            "mean_l2_distance": l2_dist.mean().item()
-        }
-
-    return misalignment_scores
+import numpy as np
 
 
-# --- QUICK TEST SCRIPT ---
-if __name__ == "__main__":
-    from model_pipeline import HookedModelPipeline
-
-    print("🚀 Initializing Pipeline...")
-    pipeline = HookedModelPipeline(model_name="gpt2")
-    prompt = "The capital of France is"
-
-    # 1. Baseline Run
-    base_result = pipeline.generate_with_hooks(prompt, max_new_tokens=5)
-    base_acts = dict(pipeline.activations)
-
-    # 2. Intervened Run
-    pipeline.clear_interventions()
-    # Zero out layer 3
-    lobotomy_tensor = torch.zeros_like(base_acts['layer_3'])
-    pipeline.add_intervention("layer_3", lobotomy_tensor)
-    int_result = pipeline.generate_with_hooks(prompt, max_new_tokens=5)
-    int_acts = dict(pipeline.activations)
-
-    # 3. Calculate Geometry at Scale
-    print("\n📊 Computing Geometric Misalignment...")
-    scores = calculate_layer_misalignment(base_acts, int_acts)
-    
-    for layer, metrics in list(scores.items())[:5]: # Print first 5 layers
-        print(f"{layer}: Cosine Dist = {metrics['mean_cosine_distance']:.4f}, L2 Dist = {metrics['mean_l2_distance']:.4f}")
-
-import torch
-import torch.nn.functional as F
-
-def compute_layer_drifts(base_acts, pert_acts):
+def compute_layer_drifts(base_activations: dict, pert_activations: dict) -> dict:
     """
     Calculates Cosine and Euclidean distances between baseline and perturbed hidden states.
     """
     drifts = {}
-    for layer in base_acts.keys():
-        if layer in pert_acts:
-            # Flatten tensors for 1D distance calculations
-            base_tensor = base_acts[layer].float().view(-1)
-            pert_tensor = pert_acts[layer].float().view(-1)
-            
-            # 1. Cosine Distance (1 - Cosine Similarity)
-            cos_sim = F.cosine_similarity(base_tensor.unsqueeze(0), pert_tensor.unsqueeze(0)).item()
-            
-            # 2. Euclidean Distance
-            euclid_dist = torch.norm(base_tensor - pert_tensor).item()
-            
-            drifts[layer] = {
-                "cosine_distance": 1.0 - cos_sim,
-                "euclidean_distance": euclid_dist
+    for layer_name in base_activations.keys():
+        if layer_name in pert_activations:
+            b_act = base_activations[layer_name].float()
+            p_act = pert_activations[layer_name].float()
+
+            # Mean-pool across sequence dimension if 3D tensor [batch, seq_len, hidden_dim]
+            b_vec = b_act.mean(dim=1).view(-1) if b_act.dim() == 3 else b_act.view(-1)
+            p_vec = p_act.mean(dim=1).view(-1) if p_act.dim() == 3 else p_act.view(-1)
+
+            min_len = min(b_vec.shape[0], p_vec.shape[0])
+            b_vec = b_vec[:min_len]
+            p_vec = p_vec[:min_len]
+
+            cos_sim = F.cosine_similarity(b_vec.unsqueeze(0), p_vec.unsqueeze(0)).item()
+            cos_dist = max(0.0, min(1.0, 1.0 - cos_sim))
+            euc_dist = torch.norm(b_vec - p_vec, p=2).item()
+
+            drifts[layer_name] = {
+                "cosine_distance": float(cos_dist),
+                "euclidean_distance": float(euc_dist),
             }
     return drifts

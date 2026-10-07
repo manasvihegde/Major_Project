@@ -124,4 +124,4 @@ def analyze_sensitivity(model_name: str, question_id: int, perturbation_type: st
 
 
 if __name__ == "__main__":
-    analyze_sensitivity(model_name="gpt2", question_id=1, perturbation_type="prefix")
+    analyze_sensitivity(model_key="gpt2", question_id=1, perturbation_type="prefix")

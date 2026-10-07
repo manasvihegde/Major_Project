@@ -79,7 +79,7 @@ if __name__ == "__main__":
     from model_pipeline import HookedModelPipeline
 
     print("🚀 Initializing Pipeline...")
-    pipeline = HookedModelPipeline(model_name="gpt2")
+    pipeline = HookedModelPipeline(model_key="gpt2")
     prompt = "The capital of France is"
 
     # 1. Baseline Run

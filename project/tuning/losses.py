@@ -1,30 +1,20 @@
 import torch
 import torch.nn.functional as F
 
-def consistency_kl_loss(baseline_logits, perturbed_logits):
-    """
-    KL divergence between softmax(baseline) and softmax(perturbed)
-    at token positions — penalizes the model for answering differently
-    when only surface form changes.
-    """
+def consistency_kl_loss(baseline_logits: torch.Tensor, perturbed_logits: torch.Tensor) -> torch.Tensor:
+    """KL divergence between softmax distributions of baseline and perturbed forward passes."""
     min_len = min(baseline_logits.size(1), perturbed_logits.size(1))
     b_logits = baseline_logits[:, :min_len, :]
     p_logits = perturbed_logits[:, :min_len, :]
     
     b_probs = F.log_softmax(b_logits, dim=-1)
     p_probs = F.softmax(p_logits, dim=-1)
-    
-    kl_loss = F.kl_div(b_probs, p_probs, reduction='batchmean')
-    return kl_loss
-
-def reward_weighted_nll(logits, target_ids, truth_score, baseline_mean_truth_score=75.0):
-    """
-    Lightweight REINFORCE-style term using truth_score as a reward weight
-    to push generation toward high-truth-score outputs.
-    """
-    advantage = (truth_score - baseline_mean_truth_score) / 100.0
-    nll = F.cross_entropy(logits.view(-1, logits.size(-1)), target_ids.view(-1))
-    return advantage * nll
+    return F.kl_div(b_probs, p_probs, reduction='batchmean')
+def reward_weighted_nll(logits: torch.Tensor, target_ids: torch.Tensor, truth_score: float, baseline_mean_truth: float = 75.0) -> torch.Tensor:
+    """Scales task cross-entropy loss by Truth-Score advantage."""
+    advantage = (truth_score - baseline_mean_truth) / 100.0
+    ce_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_ids.view(-1))
+    return advantage * ce_loss
 
 def stability_guided_loss(task_nll, baseline_logits, perturbed_logits, target_ids, truth_score, alpha=1.0, beta=0.5):
     """

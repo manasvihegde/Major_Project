@@ -87,39 +87,36 @@ class HookedModelPipeline:
             self.hooks.append(hook_handle)
 
     def generate_with_hooks(self, prompt: str, max_new_tokens: int = 50):
-    self.activations.clear()
-    
-    # Ensure correct padding token configuration for LLaMA architectures
-    if self.tokenizer.pad_token is None:
-        self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.activations.clear()
         
-    inputs = self.tokenizer(prompt, return_tensors="pt", padding=True).to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt", padding=True).to(self.device)
 
-    with torch.no_grad():
-        outputs = self.model.generate(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs.get("attention_mask", None),
-            max_new_tokens=max_new_tokens,
-            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
-            do_sample=False, # Deterministic greedy decoding for stable XAI comparisons
-            output_scores=False,
-            return_dict_in_generate=True,
-        )
+        with torch.no_grad():
+            outputs = self.model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask", None),
+                max_new_tokens=max_new_tokens,
+                pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+                do_sample=False,
+                output_scores=False,
+                return_dict_in_generate=True,
+            )
 
-    generated_ids = outputs.sequences[0]
-    generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
-    safe_activations = {}
-    for k, v in self.activations.items():
-        if isinstance(v, torch.Tensor):
-            safe_activations[k] = v.detach().cpu().clone()
-        else:
-            safe_activations[k] = v
+        generated_ids = outputs.sequences[0]
+        generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-    return {
-        "prompt": prompt,
-        "generated_text": generated_text,
-        "activations": safe_activations
-    }
+        safe_activations = {}
+        for k, v in self.activations.items():
+            if isinstance(v, torch.Tensor):
+                safe_activations[k] = v.detach().cpu().clone()
+            else:
+                safe_activations[k] = v
+
+        return {
+            "prompt": prompt,
+            "generated_text": generated_text,
+            "activations": safe_activations
+        }
 
     def forward_with_grad(self, prompt: str, target_text: str):
         full_text = prompt + target_text
